@@ -50,6 +50,7 @@ int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
 int dns_conf_serve_expired = 0;
 int dns_conf_serve_expired_ttl = 0;
+int dns_conf_serve_expired_reply_ttl = 5;
 
 /* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
@@ -67,6 +68,13 @@ int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
 size_t dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
+
+/* CA file */
+char dns_conf_ca_file[DNS_MAX_PATH];
+char dns_conf_ca_path[DNS_MAX_PATH];
+
+char dns_conf_cache_file[DNS_MAX_PATH];
+int dns_conf_cache_persist = 2;
 
 /* auditing */
 int dns_conf_audit_enable = 0;
@@ -102,6 +110,10 @@ static int _get_domain(char *value, char *domain, int max_dmain_size, char **ptr
 	char *begin = NULL;
 	char *end = NULL;
 	int len = 0;
+
+	if (value == NULL || domain == NULL) {
+		goto errout;
+	}
 
 	/* first field */
 	begin = strstr(value, "/");
@@ -246,6 +258,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
+		{"no-check-certificate", no_argument, NULL, 'N'}, /* do not check certificate */
 		{"tls-host-verify", required_argument, NULL, 'V' }, /* verify tls hostname */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
@@ -257,6 +270,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		return -1;
 	}
 
+	ip = argv[1];
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
 		return 0;
@@ -268,8 +282,6 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->hostname[0] = '\0';
 	server->httphost[0] = '\0';
 	server->tls_host_verify[0] = '\0';
-
-	ip = argv[1];
 
 	if (type == DNS_SERVER_HTTPS) {
 		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
@@ -338,6 +350,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'V': {
 			safe_strncpy(server->tls_host_verify, optarg, DNS_MAX_CNAME_LEN);
+			break;
+		}
+		case 'N': {
+			server->skip_check_cert = 1;
 			break;
 		}
 		default:
@@ -862,6 +878,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		goto errout;
 	}
 
+	ip = argv[1];
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
 		return 0;
@@ -870,7 +887,6 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip = &dns_conf_bind_ip[index];
 	bind_ip->type = type;
 	bind_ip->flags = 0;
-	ip = argv[1];
 	safe_strncpy(bind_ip->ip, ip, DNS_MAX_IPLEN);
 
 	/* process extra options */
@@ -1346,9 +1362,12 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
+	CONF_STRING("cache-file", (char *)&dns_conf_cache_file, DNS_MAX_PATH),
+	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
 	CONF_YESNO("serve-expired", &dns_conf_serve_expired),
 	CONF_INT("serve-expired-ttl", &dns_conf_serve_expired_ttl, 0, CONF_INT_MAX),
+	CONF_INT("serve-expired-reply-ttl", &dns_conf_serve_expired_reply_ttl, 0, CONF_INT_MAX),
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
@@ -1370,6 +1389,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("domain-rules", _conf_domain_rules, NULL),
+	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),
+	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
